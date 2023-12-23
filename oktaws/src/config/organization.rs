@@ -26,6 +26,7 @@ pub struct Config {
     pub username: Option<String>,
     pub role: Option<String>,
     pub duration_seconds: Option<i32>,
+    pub region: Option<String>,
     pub profiles: HashMap<String, profile::Config>,
 }
 
@@ -73,6 +74,8 @@ impl Config {
             username: Some(username),
             duration_seconds: None,
             role: default_role.clone(),
+            // FIXME Prompt for this when we fix this for SSO
+            region: Some("us-east-1".to_string()),
             profiles: join_all(profile_futures)
                 .await
                 .into_iter()
@@ -113,6 +116,7 @@ impl TryFrom<&Path> for Organization {
                 Profile::try_from_spec(
                     profile_config,
                     name.to_string(),
+                    cfg.region.clone().unwrap_or("us-east-1".to_string()),
                     cfg.role.clone(),
                     cfg.duration_seconds,
                 )
@@ -261,9 +265,10 @@ mod tests {
 username = "mock_user"
 duration_seconds = 300
 role = "my_role"
+region = "us-east-1"
 [profiles]
 foo = "foo"
-bar = {{ application = "bar", duration_seconds = 600 }}
+bar = {{ application = "bar", duration_seconds = 600, region = "us-west-2" }}
 baz = {{ application = "baz", role = "baz_role" }}
 "#
         )
@@ -280,7 +285,8 @@ baz = {{ application = "baz", role = "baz_role" }}
             application_name: String::from("foo"),
             account: None,
             role: String::from("my_role"),
-            duration_seconds: Some(300)
+            region: String::from("us-east-1"),
+            duration_seconds: Some(300),
         }));
 
         assert!(organization.profiles.contains(&Profile {
@@ -288,7 +294,8 @@ baz = {{ application = "baz", role = "baz_role" }}
             application_name: String::from("bar"),
             account: None,
             role: String::from("my_role"),
-            duration_seconds: Some(600)
+            region: String::from("us-west-2"),
+            duration_seconds: Some(600),
         }));
 
         assert!(organization.profiles.contains(&Profile {
@@ -296,7 +303,8 @@ baz = {{ application = "baz", role = "baz_role" }}
             application_name: String::from("baz"),
             account: None,
             role: String::from("baz_role"),
-            duration_seconds: Some(300)
+            region: String::from("us-east-1"),
+            duration_seconds: Some(300),
         }));
     }
 

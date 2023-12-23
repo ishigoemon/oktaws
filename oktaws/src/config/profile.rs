@@ -23,6 +23,7 @@ pub enum Config {
         account: Option<String>,
         role: Option<String>,
         duration_seconds: Option<i32>,
+        region: Option<String>,
     },
 }
 
@@ -91,6 +92,7 @@ impl Config {
                 account: None,
                 role: Some(role_name),
                 duration_seconds: None,
+                region: None,
             }
         };
 
@@ -107,6 +109,7 @@ pub struct Profile {
     pub account: Option<String>,
     pub role: String,
     pub duration_seconds: Option<i32>,
+    pub region: String,
 }
 
 impl Profile {
@@ -118,6 +121,7 @@ impl Profile {
     pub fn try_from_spec(
         profile_config: &Config,
         name: String,
+        default_region: String,
         default_role: Option<String>,
         default_duration_seconds: Option<i32>,
     ) -> Result<Self> {
@@ -145,6 +149,11 @@ impl Profile {
                 } => *duration_seconds,
             }
             .or(default_duration_seconds),
+            region: match profile_config {
+                Config::Name(_) => None,
+                Config::Detailed { region, .. } => region.clone(),
+            }
+            .unwrap_or(default_region),
         })
     }
 
@@ -248,14 +257,20 @@ impl Profile {
             .ok_or_else(|| eyre!("No token found"))?
             .1;
 
-        let client = SsoClient::new(org_id, &auth_code).await?;
+        let client = SsoClient::new(org_id, &auth_code, &self.region).await?;
 
         let app_instance = if let Some(account) = self.account {
             client
                 .app_instances()
                 .await?
                 .into_iter()
-                .find(|app| app.account_name() == Some(&account))
+                .find(|app| {
+                    app.account_name() == Some(&account)
+                        || app
+                            .search_metadata
+                            .as_ref()
+                            .is_some_and(|s| s.account_id == account)
+                })
                 .ok_or_else(|| eyre!("Could not find account: {account}"))
         } else {
             Err(eyre!("AWS SSO Applications must specify `account`"))
