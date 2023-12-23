@@ -116,7 +116,9 @@ impl TryFrom<&Path> for Organization {
                 Profile::try_from_spec(
                     profile_config,
                     name.to_string(),
-                    cfg.region.clone().unwrap_or("us-east-1".to_string()),
+                    cfg.region
+                        .clone()
+                        .unwrap_or_else(|| "us-east-1".to_string()),
                     cfg.role.clone(),
                     cfg.duration_seconds,
                 )

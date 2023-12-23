@@ -61,11 +61,11 @@ impl Client {
         }
 
         // Set the region for the SSO client
-        let base_url = format!("https://portal.sso.{}.amazonaws.com", region);
+        let base_url = format!("https://portal.sso.{region}.amazonaws.com");
 
         // Get SSO Token
         let response = reqwest::Client::new()
-            .post(format!("{0}/auth/sso-token", base_url))
+            .post(format!("{base_url}/auth/sso-token"))
             .form(&[("authCode", auth_code), ("orgId", org_id)])
             .send()
             .await?;
