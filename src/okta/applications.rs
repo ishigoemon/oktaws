@@ -3,7 +3,7 @@ use crate::{
     okta::client::Client,
 };
 
-use eyre::{Result, eyre};
+use eyre::{eyre, Result};
 use futures::future::join_all;
 use serde::Deserialize;
 use tracing::warn;
@@ -199,10 +199,11 @@ impl Client {
     pub async fn get_sso_applink_accounts_and_roles(
         &self,
         app_link: AppLink,
+        region: &str,
     ) -> Result<Vec<AppLinkAccountRoleMapping>> {
         let app_name = app_link.clone().label;
         let org_auth = self.get_org_id_and_auth_code_for_app_link(app_link).await?;
-        let sso_client = SsoClient::new(&org_auth.org_id, &org_auth.auth_code).await?;
+        let sso_client = SsoClient::new(&org_auth.org_id, &org_auth.auth_code, region).await?;
 
         let app_instances = sso_client.app_instances().await?;
         let app_aws_accounts = app_instances
@@ -238,6 +239,7 @@ impl Client {
     pub async fn get_all_account_mappings(
         &self,
         links: Vec<AppLink>,
+        region: &str,
     ) -> Result<Vec<AppLinkAccountRoleMapping>> {
         let mut saml_role_futures = Vec::new();
         let mut all_role_names = Vec::new(); // We don't want to run sso app links concurrently due to rate limiting
@@ -245,7 +247,10 @@ impl Client {
             if link.app_name == "amazon_aws" {
                 saml_role_futures.push(self.get_saml_account_role_mapping(link));
             } else if link.app_name == "amazon_aws_sso" {
-                all_role_names.extend(self.get_sso_applink_accounts_and_roles(link).await?);
+                all_role_names.extend(
+                    self.get_sso_applink_accounts_and_roles(link, region)
+                        .await?,
+                );
             } else {
                 return Err(eyre!("Unsupported app name: {}", link.app_name));
             }
@@ -263,9 +268,13 @@ impl Client {
     /// # Errors
     ///
     /// Will return `Err` if there are any errors while fetching the roles.
-    pub async fn all_app_instances(&self, app_link: AppLink) -> Result<Vec<AppInstance>> {
+    pub async fn all_app_instances(
+        &self,
+        app_link: AppLink,
+        region: &str,
+    ) -> Result<Vec<AppInstance>> {
         let org_auth = self.get_org_id_and_auth_code_for_app_link(app_link).await?;
-        let sso_client = SsoClient::new(&org_auth.org_id, &org_auth.auth_code).await?;
+        let sso_client = SsoClient::new(&org_auth.org_id, &org_auth.auth_code, region).await?;
 
         sso_client.app_instances().await
     }

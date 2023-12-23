@@ -3,13 +3,13 @@ use crate::okta::auth::LoginRequest;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use backoff::ExponentialBackoff;
 use backoff::future::retry;
+use backoff::ExponentialBackoff;
 use dialoguer::Password;
-use eyre::{Result, eyre};
-use reqwest::Response;
+use eyre::{eyre, Result};
 use reqwest::cookie::Jar;
-use reqwest::header::{ACCEPT, HeaderValue};
+use reqwest::header::{HeaderValue, ACCEPT};
+use reqwest::Response;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -286,7 +286,7 @@ mockall::mock! {
     pub Client {
         pub fn base_url(&self) -> &Url;
         pub async fn app_links(&self, user_id: Option<()>) -> Result<Vec<crate::okta::applications::AppLink>>;
-        pub async fn get_all_account_mappings(&self, links: Vec<crate::okta::applications::AppLink>) -> Result<Vec<crate::okta::applications::AppLinkAccountRoleMapping>>;
+        pub async fn get_all_account_mappings(&self, links: Vec<crate::okta::applications::AppLink>, region: &str) -> Result<Vec<crate::okta::applications::AppLinkAccountRoleMapping>>;
         pub fn remove_overlapped_account_mappings(&self, account_mappings: Vec<crate::okta::applications::AppLinkAccountRoleMapping>) -> Result<Vec<crate::okta::applications::AppLinkAccountRoleMapping>>;
         pub async fn get_saml_response(&self, url: Url) -> Result<crate::aws::saml::Response>;
         pub async fn get_response(&self, url: Url) -> Result<Response>;

@@ -1,17 +1,16 @@
-use eyre::{Result, eyre};
+use eyre::{eyre, Result};
 use regex::Regex;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::Deserialize;
 use std::sync::LazyLock;
 use std::time::Duration;
 use std::time::SystemTime;
 use tracing::{debug, trace};
 
-const BASE_URL: &str = "https://portal.sso.us-east-1.amazonaws.com";
-
 pub struct Client {
     token: String,
+    base_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -19,6 +18,14 @@ pub struct Client {
 pub struct Page<T> {
     pub pagination_token: Option<String>,
     pub result: Vec<T>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SearchMetadata {
+    pub account_id: String,
+    pub account_name: String,
+    pub account_email: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +37,7 @@ pub struct AppInstance {
     pub application_id: String,
     pub application_name: String,
     pub icon: String,
+    pub search_metadata: Option<SearchMetadata>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -48,15 +56,18 @@ impl Client {
     ///
     /// The function will error for network issues, or if the response is not parseable as expected
     ///
-    pub async fn new(org_id: &str, auth_code: &str) -> Result<Self> {
+    pub async fn new(org_id: &str, auth_code: &str, region: &str) -> Result<Self> {
         #[derive(Deserialize)]
         struct SsoTokenResponse {
             token: String,
         }
 
+        // Set the region for the SSO client
+        let base_url = format!("https://portal.sso.{region}.amazonaws.com");
+
         // Get SSO Token
         let response = reqwest::Client::new()
-            .post(format!("{BASE_URL}/auth/sso-token"))
+            .post(format!("{base_url}/auth/sso-token"))
             .form(&[("authCode", auth_code), ("orgId", org_id)])
             .send()
             .await?;
@@ -66,7 +77,7 @@ impl Client {
 
         let SsoTokenResponse { token } = serde_json::from_str(&text)?;
 
-        Ok(Self { token })
+        Ok(Self { token, base_url })
     }
 
     /// # Errors
@@ -84,7 +95,7 @@ impl Client {
             .build();
 
         let response = client
-            .get(format!("{BASE_URL}/instance/appinstances"))
+            .get(format!("{0}/instance/appinstances", &self.base_url))
             .header("x-amz-sso_bearer_token", &self.token)
             .header("x-amz-sso-bearer-token", &self.token)
             .send()
@@ -121,7 +132,8 @@ impl Client {
 
         let response = client
             .get(format!(
-                "{BASE_URL}/instance/appinstance/{app_instance_id}/profiles"
+                "{0}/instance/appinstance/{app_instance_id}/profiles",
+                self.base_url
             ))
             .header("x-amz-sso_bearer_token", &self.token)
             .header("x-amz-sso-bearer-token", &self.token)
@@ -170,7 +182,7 @@ impl Client {
         debug!("Requesting credentials for account: {account_id}, role: {role_name}");
 
         let RoleCredentials { role_credentials } = reqwest::Client::new()
-            .get(format!("{BASE_URL}/federation/credentials/"))
+            .get(format!("{0}/federation/credentials/", self.base_url))
             .query(&[
                 ("account_id", account_id),
                 ("role_name", role_name),

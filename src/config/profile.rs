@@ -9,7 +9,7 @@ use crate::{
 };
 
 use aws_credential_types::Credentials;
-use eyre::{Result, eyre};
+use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, trace};
 
@@ -24,6 +24,7 @@ pub enum Config {
         account: Option<String>,
         role: Option<String>,
         duration_seconds: Option<i32>,
+        region: Option<String>,
     },
 }
 
@@ -74,6 +75,7 @@ impl Config {
                 account: Some(mapping.account_name.clone()),
                 role: None,
                 duration_seconds: None,
+                region: None,
             }
         } else {
             Self::Detailed {
@@ -81,6 +83,7 @@ impl Config {
                 account: Some(mapping.account_name.clone()),
                 role: Some(role_name),
                 duration_seconds: None,
+                region: None,
             }
         };
 
@@ -97,6 +100,7 @@ pub struct Profile {
     pub account: Option<String>,
     pub roles: Vec<String>,
     pub duration_seconds: Option<i32>,
+    pub region: String,
 }
 
 impl Profile {
@@ -108,6 +112,7 @@ impl Profile {
     pub fn try_from_spec(
         profile_config: &Config,
         name: String,
+        default_region: String,
         default_roles: Option<Vec<String>>,
         default_duration_seconds: Option<i32>,
     ) -> Result<Self> {
@@ -135,6 +140,11 @@ impl Profile {
                 } => *duration_seconds,
             }
             .or(default_duration_seconds),
+            region: match profile_config {
+                Config::Name(_) => None,
+                Config::Detailed { region, .. } => region.clone(),
+            }
+            .unwrap_or(default_region),
         })
     }
 
@@ -249,14 +259,20 @@ impl Profile {
             .get_org_id_and_auth_code_for_app_link(app_link)
             .await?;
 
-        let client = SsoClient::new(&org_auth.org_id, &org_auth.auth_code).await?;
+        let client = SsoClient::new(&org_auth.org_id, &org_auth.auth_code, &self.region).await?;
 
         let app_instance = if let Some(account) = self.account {
             client
                 .app_instances()
                 .await?
                 .into_iter()
-                .find(|app| app.account_name() == Some(account.clone()))
+                .find(|app| {
+                    app.account_name() == Some(account.clone())
+                        || app
+                            .search_metadata
+                            .as_ref()
+                            .is_some_and(|s| s.account_id == account)
+                })
                 .ok_or_else(|| eyre!("Could not find account: {account}"))
         } else {
             Err(eyre!("AWS SSO Applications must specify `account`"))

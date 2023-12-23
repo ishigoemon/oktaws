@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use aws_credential_types::Credentials;
 use dialoguer::Input;
-use eyre::{Error, Result, eyre};
+use eyre::{eyre, Error, Result};
 use futures::stream::{self, StreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,7 @@ pub struct Config {
     pub roles: Option<Vec<String>>,
     pub role: Option<String>,
     pub duration_seconds: Option<i32>,
+    pub region: Option<String>,
     pub profiles: IndexMap<String, profile::Config>,
 }
 
@@ -48,8 +49,9 @@ impl Config {
             .filter(|link| link.app_name == "amazon_aws" || link.app_name == "amazon_aws_sso")
             .collect::<Vec<_>>();
 
-        let mut all_account_role_mappings =
-            client.get_all_account_mappings(aws_links.clone()).await?;
+        let mut all_account_role_mappings = client
+            .get_all_account_mappings(aws_links.clone(), "us-east-1")
+            .await?;
         all_account_role_mappings.sort_by(|a, b| a.account_name.cmp(&b.account_name));
 
         let mut role_names = all_account_role_mappings
@@ -96,6 +98,8 @@ impl Config {
             Ok(Self {
                 username: Some(username),
                 duration_seconds: None,
+                // FIXME Prompt for this when we fix this for SSO
+                region: Some("us-east-1".to_string()),
                 role: None,
                 roles: None,
                 profiles,
@@ -104,6 +108,8 @@ impl Config {
             Ok(Self {
                 username: Some(username),
                 duration_seconds: None,
+                // FIXME Prompt for this when we fix this for SSO
+                region: Some("us-east-1".to_string()),
                 role: default_roles.first().cloned(),
                 roles: None,
                 profiles,
@@ -112,6 +118,8 @@ impl Config {
             Ok(Self {
                 username: Some(username),
                 duration_seconds: None,
+                // FIXME Prompt for this when we fix this for SSO
+                region: Some("us-east-1".to_string()),
                 role: None,
                 roles: Some(default_roles),
                 profiles,
@@ -164,6 +172,9 @@ impl TryFrom<&Path> for Organization {
                 Profile::try_from_spec(
                     profile_config,
                     name.clone(),
+                    cfg.region
+                        .clone()
+                        .unwrap_or_else(|| "us-east-1".to_string()),
                     default_roles.clone(),
                     cfg.duration_seconds,
                 )
@@ -317,9 +328,10 @@ mod tests {
 username = "mock_user"
 duration_seconds = 300
 roles = ["my_role", "my_role_2"]
+region = "us-east-1"
 [profiles]
 foo = "foo"
-bar = {{ application = "bar", duration_seconds = 600 }}
+bar = {{ application = "bar", duration_seconds = 600, region = "us-west-2" }}
 baz = {{ application = "baz", role = "baz_role" }}
 "#
         )
@@ -336,6 +348,7 @@ baz = {{ application = "baz", role = "baz_role" }}
             application_name: String::from("foo"),
             account: None,
             roles: vec![String::from("my_role"), String::from("my_role_2")],
+            region: String::from("us-east-1"),
             duration_seconds: Some(300)
         }));
 
@@ -344,6 +357,7 @@ baz = {{ application = "baz", role = "baz_role" }}
             application_name: String::from("bar"),
             account: None,
             roles: vec![String::from("my_role"), String::from("my_role_2")],
+            region: String::from("us-west-2"),
             duration_seconds: Some(600)
         }));
 
@@ -352,6 +366,7 @@ baz = {{ application = "baz", role = "baz_role" }}
             application_name: String::from("baz"),
             account: None,
             roles: vec![String::from("baz_role")],
+            region: String::from("us-east-1"),
             duration_seconds: Some(300)
         }));
     }
@@ -386,6 +401,7 @@ foo = "foo"
             application_name: String::from("foo"),
             account: None,
             roles: vec![String::from("my_role")],
+            region: String::from("us-east-1"),
             duration_seconds: Some(300)
         }));
     }
@@ -536,7 +552,7 @@ foo = "foo"
         client.expect_app_links().returning(|_| Ok(Vec::new()));
 
         // With two (different) roles
-        client.expect_get_all_account_mappings().returning(|_| {
+        client.expect_get_all_account_mappings().returning(|_, _| {
             Ok(vec![
                 AppLinkAccountRoleMapping {
                     account_name: "foo".to_string(),
