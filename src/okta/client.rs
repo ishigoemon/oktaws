@@ -21,6 +21,7 @@ pub struct Client {
     http: HttpClient,
     base_url: Url,
     pub cookies: Arc<Jar>,
+    pub totp_process: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -63,7 +64,12 @@ impl Client {
     ///
     /// Will return `Err` if a URL cannot be constructed for the organization,
     /// or if there are underlying HTTP client creation issues.
-    pub async fn new(organization: String, username: String, force_prompt: bool) -> Result<Self> {
+    pub async fn new(
+        organization: String,
+        username: String,
+        totp_process: Option<String>,
+        force_prompt: bool,
+    ) -> Result<Self> {
         let mut base_url = Url::parse(&format!("https://{organization}.okta.com/"))?;
         base_url
             .set_username(&username)
@@ -78,6 +84,7 @@ impl Client {
                 .build()?,
             base_url: base_url.clone(),
             cookies,
+            totp_process,
         };
 
         // Visit the homepage to get a DeviceToken (DT) cookie (used for persisting MFA information).

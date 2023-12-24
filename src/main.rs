@@ -100,6 +100,7 @@ async fn refresh(args: RefreshArgs) -> Result<()> {
         let okta_client = OktaClient::new(
             organization.name.clone(),
             organization.username.clone(),
+            organization.totp_process.clone(),
             args.force_new,
         )
         .await?;
@@ -176,6 +177,7 @@ async fn init(options: Init) -> Result<()> {
     let okta_client = OktaClient::new(
         options.organization.clone(),
         options.username.clone(),
+        None,
         options.force_new,
     )
     .await?;
