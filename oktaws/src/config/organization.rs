@@ -27,6 +27,7 @@ pub struct Config {
     pub role: Option<String>,
     pub duration_seconds: Option<i32>,
     pub region: Option<String>,
+    pub totp_process: Option<String>,
     pub profiles: HashMap<String, profile::Config>,
 }
 
@@ -76,6 +77,7 @@ impl Config {
             role: default_role.clone(),
             // FIXME Prompt for this when we fix this for SSO
             region: Some("us-east-1".to_string()),
+            totp_process: None,
             profiles: join_all(profile_futures)
                 .await
                 .into_iter()
@@ -91,6 +93,7 @@ pub struct Organization {
     pub name: String,
     pub username: String,
     pub profiles: Vec<Profile>,
+    pub totp_process: Option<String>,
 }
 
 impl TryFrom<&Path> for Organization {
@@ -129,6 +132,7 @@ impl TryFrom<&Path> for Organization {
             name: filename,
             username,
             profiles,
+            totp_process: cfg.totp_process,
         })
     }
 }
@@ -268,6 +272,7 @@ username = "mock_user"
 duration_seconds = 300
 role = "my_role"
 region = "us-east-1"
+totp_process = "totp_process"
 [profiles]
 foo = "foo"
 bar = {{ application = "bar", duration_seconds = 600, region = "us-west-2" }}
@@ -280,6 +285,7 @@ baz = {{ application = "baz", role = "baz_role" }}
 
         assert_eq!(organization.name, "mock_org");
         assert_eq!(organization.username, "mock_user");
+        assert_eq!(organization.totp_process, Some("totp_process".to_string()));
         assert_eq!(organization.profiles.len(), 3);
 
         assert!(organization.profiles.contains(&Profile {
@@ -357,6 +363,34 @@ foo = "foo"
 
     #[test]
     fn profile_without_duration() {
+        let tempdir = tempfile::tempdir().unwrap();
+
+        let filepath = tempdir.path().join("mock_org.toml");
+        let mut file = File::create(filepath.clone()).unwrap();
+
+        write!(
+            file,
+            r#"
+username = "mock_user"
+role = "my_role"
+[profiles]
+foo = "foo"
+"#
+        )
+        .unwrap();
+
+        let organization = Organization::try_from(filepath.as_path()).unwrap();
+
+        assert_eq!(organization.profiles.len(), 1);
+
+        assert_eq!(organization.profiles[0].name, "foo");
+        assert_eq!(organization.profiles[0].application_name, "foo");
+        assert_eq!(organization.profiles[0].role, "my_role");
+        assert_eq!(organization.profiles[0].duration_seconds, None);
+    }
+
+    #[test]
+    fn profile_with_totp_process() {
         let tempdir = tempfile::tempdir().unwrap();
 
         let filepath = tempdir.path().join("mock_org.toml");

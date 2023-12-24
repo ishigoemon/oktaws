@@ -5,11 +5,13 @@ use crate::okta::Links::Multi;
 use crate::okta::Links::Single;
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fmt;
 use std::thread::sleep;
 use std::time::Duration;
 
 use dialoguer::Password;
+use duct::cmd;
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
@@ -336,9 +338,15 @@ impl Client {
 
                 url.set_query(Some("rememberDevice"));
 
+                let pass_code = if let Some(totp_process) = &self.totp_process {
+                    execute_totp_process(totp_process)?
+                } else {
+                    Password::new().with_prompt(factor.to_string()).interact()?
+                };
+
                 let request = FactorVerificationRequest::Totp {
                     state_token,
-                    pass_code: Password::new().with_prompt(factor.to_string()).interact()?,
+                    pass_code,
                 };
 
                 self.post_absolute(url, &request).await
@@ -348,5 +356,32 @@ impl Client {
                 Err(eyre!("Unsupported MFA method ({})", factor))
             }
         }
+    }
+}
+
+/// If an TOTP callback is configured, run it and return the output, otherwise
+/// prompt the user for a TOTP code
+///
+/// # Errors
+///
+/// Will return `Err` if there are any errors if totp_process is empty, returns non-UTF-8
+/// output or returns a non-zero exit code
+fn execute_totp_process(totp_process: &str) -> Result<String> {
+    let mut cmd_vec = totp_process.split_whitespace().collect::<VecDeque<&str>>();
+    let totp_cmd = cmd_vec
+        .pop_front()
+        .ok_or_else(|| eyre!("No command found"))?;
+    let output = cmd(totp_cmd, cmd_vec).stdout_capture().run()?;
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_execute_totp_process() {
+        let output = execute_totp_process("echo 123456").unwrap();
+        assert_eq!("123456", output);
     }
 }
