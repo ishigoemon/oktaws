@@ -5,6 +5,7 @@ use std::str::FromStr;
 use base64::engine::{Engine, general_purpose::STANDARD as b64};
 use eyre::{Error, Result, eyre};
 use kuchiki::traits::TendrilSink;
+use percent_encoding::percent_decode_str;
 use regex::Regex;
 use samuel::assertion::{Assertions, AttributeStatement};
 use url::Url;
@@ -91,6 +92,51 @@ impl Response {
             .send()
             .await
             .map_err(Into::into)
+    }
+
+    /// Post the SAML document to AWS without following redirects, and extract the redirect URL
+    /// from the "platform-workflow-state" cookie set in the 303 response.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there are any errors encountered while sending the request,
+    /// if the cookie is not found, or if the JSON cannot be parsed
+    pub async fn post_url_from_cookie(self) -> Result<Url> {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+
+        let response = client
+            .post(self.url)
+            .form(&[
+                ("SAMLResponse", self.saml.as_str()),
+                ("RelayState", self.relay_state.as_str()),
+            ])
+            .send()
+            .await?;
+
+        let platform_cookie = response
+            .cookies()
+            .find(|c| c.name() == "platform-workflow-state")
+            .ok_or_else(|| eyre!("platform-workflow-state cookie not found"))?;
+
+        let cookie_value = platform_cookie.value();
+        let decoded_value = percent_decode_str(cookie_value)
+            .decode_utf8()
+            .map_err(|e| eyre!("Failed to URL decode cookie value: {}", e))?;
+        tracing::trace!("platform-workflow-state decoded: {}", decoded_value);
+
+        let cookie_json: serde_json::Value = serde_json::from_str(&decoded_value)?;
+
+        let redirect_url = cookie_json
+            .get("redirect")
+            .and_then(|r| r.get("url"))
+            .and_then(|u| u.as_str())
+            .ok_or_else(|| eyre!("redirect.url not found in platform-workflow-state cookie"))?;
+
+        tracing::trace!("Redirect URL from cookie: {}", redirect_url);
+
+        Url::from_str(redirect_url).map_err(Into::into)
     }
 }
 

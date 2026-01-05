@@ -59,9 +59,9 @@ impl Client {
                 )
             })?;
 
-        let response = response.post().await?;
-        let host = response
-            .url()
+        let redirect_url = response.post_url_from_cookie().await?;
+
+        let host = redirect_url
             .host()
             .ok_or_else(|| eyre!("No host found"))?;
         let org_id = if let url::Host::Domain(domain) = host {
@@ -72,8 +72,7 @@ impl Client {
         } else {
             Err(eyre!("Host: {:?} is not a domain", host))
         }?;
-        let auth_code = response
-            .url()
+        let auth_code = redirect_url
             .query_pairs()
             .find(|(k, _)| k.eq("workflowResultHandle"))
             .ok_or_else(|| eyre!("No token found"))?
